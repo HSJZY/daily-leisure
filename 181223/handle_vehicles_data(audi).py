@@ -155,9 +155,70 @@ for j in range(len(countries)):
                 continue
             std_jk_t/=std_counts
             S_jk_t[j][k][t]=np.sqrt(std_jk_t)
+#------------------article 2-------------------------------------------------
+#对价格取ln
+country_vehicles_ln=deepcopy(country_vehicles)
+for i,vehicle_name in enumerate(vehicle_type):
+    for j in range(len(countries)):
+        for t in range(months):
+            if pd.isnull(country_vehicles_ln[j][vehicle_name].iloc[t]):
+                break
+            country_vehicles_ln[j][vehicle_name].iloc[t]=np.log(country_vehicles_ln[j][vehicle_name].iloc[t])
+    
+#获取每种车型各时期其各个国家的对应均值ln
+all_mean_vehicles_ln=[] #[vehicle,month]
+for i,vehicle_name in enumerate(vehicle_type):
+    count_exist_country=0
+    sum_price_vehiclei_ln=np.zeros(months)
+    for j in range(len(countries)):
+        df_vehicle_price=country_vehicles_ln[j][vehicle_name]
+        if(pd.isnull(df_vehicle_price.iloc[0])):
+            continue
+        count_exist_country+=1
+#        print("sum_price_vehiclei:",sum_price_vehiclei,"df_vehicle_price.values:",df_vehicle_price.values)
+        sum_price_vehiclei_ln+=df_vehicle_price.values
+    sum_price_vehiclei_ln/=count_exist_country
+    all_mean_vehicles_ln.append(sum_price_vehiclei_ln)
+all_mean_vehicles_ln=np.array(all_mean_vehicles_ln)
+assert len(all_mean_vehicles_ln)==vehicle_num
 
+S_i_t=np.zeros((len(vehicle_type),months))
+
+for i,vehicle_name in enumerate(vehicle_type):
+    for t in range(months):
+        square_sum_S_i_t=0
+        countries_count=0
+        for j in range(len(countries)):
+            if pd.isnull(country_vehicles_ln[j][vehicle_name].iloc[0]):
+                continue
+#            print('all_mean_vehicles_ln[i][t]:',all_mean_vehicles_ln[i][t])
+#            print("country_vehicles_ln[j][vehicle_name][t]:",country_vehicles_ln[j][vehicle_name][t])
+            square_sum_S_i_t+=(country_vehicles_ln[j][vehicle_name].iloc[t]-all_mean_vehicles_ln[i][t])**2
+            countries_count+=1
+        if countries_count==0:
+            continue
+        square_sum_S_i_t/=countries_count
+#        print("i:",i,"t:",t)
+        S_i_t[i][t]=np.sqrt(square_sum_S_i_t)
+
+df_s_i_t=DataFrame(S_i_t.T, columns = vehicle_type)
+#---------------------------------------------------------------------------- 
 #生成excel计算表格
 writer = pd.ExcelWriter('./result_audi.xlsx',engine='openpyxl')
+#-------------------------生成第一个表格，包括原始数据以及同一产品不同国家之间标准差----------------
+df_combine=pd.concat([df,df_s_i_t])
+df_combine['time']=[i+1 for i in range(months)]*(len(countries)+1)
+df_combine['标头']=[np.nan for i in range(df_combine.shape[0])]
+for i,country_name in enumerate(countries):
+    df_combine['标头'].iloc[i*months]=countries[i]
+df_combine['标头'].iloc[months*len(countries)]='S_i_t'
+order_columns=['标头','time']
+order_columns.extend(vehicle_type)
+print("order_columns:",order_columns)
+df_combine=df_combine[order_columns]
+df_combine.to_excel(excel_writer=writer, sheet_name='原始数据-S_i_t', encoding="utf-8", index=False)
+#---------------------------------------------------------------------------------------------------
+
 for j in range(len(countries)):
     for k in range(len(countries)):
         print('j:',j,'k:',k)
@@ -174,13 +235,14 @@ for j in range(len(countries)):
         table_1_columns=deepcopy(columns_name)
         columns_name.extend(right_table_columns)
         res_dict={}
-        res_dict[columns_name[0]]=[np.nan for i in range(5*months)]
+        res_dict[columns_name[0]]=[np.nan for i in range(6*months)]
         res_dict[columns_name[0]][0]=country_j_name
         res_dict[columns_name[0]][months]=country_k_name
         res_dict[columns_name[0]][months*2]='Q_i_jk_t=ln(pitj)-ln(pitk)'
         res_dict[columns_name[0]][months*3]='q_i_jk_t=Q_i_jk_t-Q_star_i_t'
         res_dict[columns_name[0]][months*4]='S_jk_t'
-        res_dict[columns_name[1]]=[i for i in range(1,months+1)]*5
+        res_dict[columns_name[0]][months*5]='SD_star_t'
+        res_dict[columns_name[1]]=[i for i in range(1,months+1)]*6
         
         for i,vehicle_name in enumerate(vehicle_type):
             res_dict[vehicle_name]=country_j_price[vehicle_name].values.tolist()
@@ -189,6 +251,7 @@ for j in range(len(countries)):
             res_dict[vehicle_name].extend(q_i_jk_t[i][j][k][:])
             if i==0:
                 res_dict[vehicle_name].extend(S_jk_t[j][k][:])
+                res_dict[vehicle_name].extend(std_relative)
                 res_dict[right_table_columns[0]]=[country_j_name for i in range(months)]
                 res_dict[right_table_columns[1]]=[country_k_name for i in range(months)]
                 res_dict[right_table_columns[2]]=[i for i in range(months)]
